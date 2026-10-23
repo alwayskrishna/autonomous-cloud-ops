@@ -54,7 +54,7 @@ public sealed class DiagnosticToolRegistryTests
         Assert.False(result.IsError);
         Assert.Contains("offline-mock", result.ContentJson);
         var get = await tools.InvokeAsync(new DiagnosticToolCall("get_incident", """{"incidentId":"incident-1"}"""));
-        Assert.Contains("\"status\":0", get.ContentJson);
+        Assert.Contains("\"Status\":0", get.ContentJson);
     }
 
     [Theory]
