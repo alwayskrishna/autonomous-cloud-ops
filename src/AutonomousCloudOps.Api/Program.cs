@@ -13,6 +13,7 @@ builder.Services.AddSingleton(_ =>
 builder.Services.AddSingleton<IncidentDetector>();
 builder.Services.AddSingleton<RecoveryPlanner>();
 builder.Services.AddSingleton<RecoveryDryRunService>();
+builder.Services.AddSingleton<RecoveryApprovalStore>();
 builder.Services.AddSingleton<IIncidentDiagnosticProvider, MockIncidentDiagnosticProvider>();
 builder.Services.AddSingleton<IncidentDiagnosticService>();
 var app = builder.Build();
@@ -40,6 +41,38 @@ app.MapPost("/api/telemetry/detect", (TelemetrySample sample, IncidentDetector d
     }
     catch (ArgumentException e) { return Results.BadRequest(new { error = e.Message }); }
 });
+
+// Local prototype only: actor is caller-supplied, NOT authenticated identity.
+app.MapGet("/api/recovery/approvals", (RecoveryApprovalStore approvals) =>
+    Results.Ok(approvals.List()));
+
+app.MapGet("/api/recovery/approvals/{requestId}", (string requestId, RecoveryApprovalStore approvals) =>
+{
+    try { return Results.Ok(approvals.Get(requestId)); }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+});
+
+app.MapPost("/api/incidents/{id}/recovery/approvals",
+    (string id, IncidentLifecycleStore incidents, RecoveryPlanner planner,
+        RecoveryApprovalStore approvals) =>
+{
+    try
+    {
+        var incident = incidents.Get(id).Incident;
+        var action = planner.Propose(incident).Actions.Single();
+        var approval = approvals.Submit(action, DateTimeOffset.UtcNow);
+        return Results.Created($"/api/recovery/approvals/{approval.Id}", approval);
+    }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+});
+
+app.MapPost("/api/recovery/approvals/{requestId}/approve",
+    (string requestId, ApprovalDecisionRequest decision, RecoveryApprovalStore approvals) =>
+    ApplyApproval(() => approvals.Approve(requestId, decision.Actor, decision.At, decision.Reason)));
+
+app.MapPost("/api/recovery/approvals/{requestId}/reject",
+    (string requestId, ApprovalDecisionRequest decision, RecoveryApprovalStore approvals) =>
+    ApplyApproval(() => approvals.Reject(requestId, decision.Actor, decision.At, decision.Reason)));
 
 app.MapPost("/api/incidents/{id}/recovery/dry-run",
     (string id, IncidentLifecycleStore store, RecoveryPlanner planner, RecoveryDryRunService simulator) =>
@@ -85,5 +118,14 @@ static IResult ApplyTransition(Func<TrackedIncident> action)
     catch (InvalidOperationException e) { return Results.Conflict(new { error = e.Message }); }
 }
 
+static IResult ApplyApproval(Func<RecoveryApprovalRequest> action)
+{
+    try { return Results.Ok(action()); }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+    catch (ArgumentException e) { return Results.BadRequest(new { error = e.Message }); }
+    catch (InvalidOperationException e) { return Results.Conflict(new { error = e.Message }); }
+}
+
+public sealed record ApprovalDecisionRequest(string Actor, DateTimeOffset At, string Reason);
 public sealed record TransitionRequest(string Actor, DateTimeOffset At, string? Note);
 public partial class Program { }
