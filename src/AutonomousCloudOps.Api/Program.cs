@@ -68,7 +68,7 @@ if (!app.Environment.IsEnvironment("Testing"))
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
-        await next(context);
+        await next();
     });
 }
 
