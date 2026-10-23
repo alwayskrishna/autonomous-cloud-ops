@@ -1,4 +1,6 @@
 using AutonomousCloudOps.Core;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(_ =>
@@ -23,10 +25,36 @@ builder.Services.AddSingleton<IPlatformRecoveryAdapter, ContainerAppsRecoveryPre
 builder.Services.AddSingleton<PlatformRecoveryPreviewService>();
 builder.Services.AddSingleton<IIncidentDiagnosticProvider, MockIncidentDiagnosticProvider>();
 builder.Services.AddSingleton<IncidentDiagnosticService>();
+// Production-like environments fail closed if identity settings are absent.
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    var authority = builder.Configuration["Authentication:Authority"];
+    var audience = builder.Configuration["Authentication:Audience"];
+    if (string.IsNullOrWhiteSpace(authority) || string.IsNullOrWhiteSpace(audience))
+        throw new InvalidOperationException("Authentication:Authority and Authentication:Audience are required.");
+    if (!Uri.TryCreate(authority, UriKind.Absolute, out var authorityUri) ||
+        authorityUri.Scheme != Uri.UriSchemeHttps)
+        throw new InvalidOperationException("Authentication:Authority must be an HTTPS URL.");
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.Authority = authority;
+            options.Audience = audience;
+            options.RequireHttpsMetadata = true;
+        });
+    builder.Services.AddAuthorization(options =>
+        options.FallbackPolicy = new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser().Build());
+}
 var app = builder.Build();
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 
 // Local development only. Authentication and authorization are required before deployment.
-app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymous();
 
 app.MapGet("/api/incidents", (IncidentLifecycleStore store) =>
     Results.Ok(store.List()));
