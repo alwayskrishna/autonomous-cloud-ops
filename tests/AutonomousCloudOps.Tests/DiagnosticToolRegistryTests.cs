@@ -22,7 +22,7 @@ public sealed class DiagnosticToolRegistryTests
     public void ListsOnlyReadOnlyTools()
     {
         var (tools, _) = Create();
-        Assert.Equal(3, tools.ListTools().Count);
+        Assert.Equal(4, tools.ListTools().Count);
         Assert.DoesNotContain(tools.ListTools(), t => t.Name.Contains("resolve", StringComparison.OrdinalIgnoreCase));
         foreach (var definition in tools.ListTools())
             using (JsonDocument.Parse(definition.InputSchemaJson)) { }
@@ -55,6 +55,31 @@ public sealed class DiagnosticToolRegistryTests
         Assert.Contains("offline-mock", result.ContentJson);
         var get = await tools.InvokeAsync(new DiagnosticToolCall("get_incident", """{"incidentId":"incident-1"}"""));
         Assert.Contains("\"Status\":0", get.ContentJson);
+    }
+
+    [Fact]
+    public async Task RetrievesIncidentEvidenceThroughReadOnlyTool()
+    {
+        var store = new IncidentLifecycleStore();
+        var incident = new Incident("evidence-1", "node-a",
+            DateTimeOffset.Parse("2026-01-01T12:00:00Z"), IncidentSeverity.Critical, "CPU");
+        store.Open(incident);
+        var source = new InMemoryIncidentEvidenceSource(new[]
+        {
+            new EvidenceRecord("metric-1", "node-a", incident.DetectedAt,
+                EvidenceKind.Metric, "CPU 96%"),
+            new EvidenceRecord("other", "node-b", incident.DetectedAt,
+                EvidenceKind.Log, "Unrelated")
+        });
+        var tools = new DiagnosticToolRegistry(store,
+            new IncidentDiagnosticService(new MockIncidentDiagnosticProvider()),
+            new IncidentEvidenceService(source));
+        var result = await tools.InvokeAsync(new DiagnosticToolCall(
+            "get_incident_evidence", """{"incidentId":"evidence-1"}"""));
+        Assert.False(result.IsError);
+        Assert.Contains("CPU 96%", result.ContentJson);
+        Assert.DoesNotContain("Unrelated", result.ContentJson);
+        Assert.Equal(IncidentStatus.Open, store.Get(incident.Id).Status);
     }
 
     [Theory]
