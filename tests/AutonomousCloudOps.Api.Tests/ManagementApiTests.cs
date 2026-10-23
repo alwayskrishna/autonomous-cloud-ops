@@ -99,6 +99,31 @@ public sealed class ManagementApiTests
     }
 
     [Fact]
+    public async Task WorkflowApiStartsAndReusesApproval()
+    {
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
+        var client = factory.CreateClient();
+        var detected = await client.PostAsJsonAsync("/api/telemetry/detect",
+            new { resourceId = "node", timestamp = DateTimeOffset.UtcNow,
+                cpuPercent = 95, memoryPercent = 20, http5xxCount = 0 });
+        Assert.Equal(HttpStatusCode.OK, detected.StatusCode);
+        var incidents = await client.GetFromJsonAsync<System.Text.Json.JsonElement[]>("/api/incidents");
+        Assert.NotNull(incidents);
+        var id = Assert.Single(incidents).GetProperty("incident").GetProperty("id").GetString();
+        var first = await client.PostAsync($"/api/incidents/{id}/recovery/workflows", null);
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var workflow = await first.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.False(workflow.GetProperty("simulation").GetProperty("executed").GetBoolean());
+        var workflowId = workflow.GetProperty("id").GetString();
+        var repeated = await client.PostAsync($"/api/incidents/{id}/recovery/workflows", null);
+        var second = await repeated.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.Equal(workflowId, second.GetProperty("id").GetString());
+        var list = await client.GetFromJsonAsync<System.Text.Json.JsonElement[]>("/api/recovery/workflows");
+        Assert.Single(list!);
+    }
+
+    [Fact]
     public async Task MissingIncidentReturnsNotFound()
     {
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));

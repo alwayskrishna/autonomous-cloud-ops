@@ -14,6 +14,10 @@ builder.Services.AddSingleton<IncidentDetector>();
 builder.Services.AddSingleton<RecoveryPlanner>();
 builder.Services.AddSingleton<RecoveryDryRunService>();
 builder.Services.AddSingleton<RecoveryApprovalStore>();
+builder.Services.AddSingleton<IIncidentEvidenceSource>(_ => new InMemoryIncidentEvidenceSource([]));
+builder.Services.AddSingleton<IncidentEvidenceService>(sp =>
+    new IncidentEvidenceService(sp.GetRequiredService<IIncidentEvidenceSource>()));
+builder.Services.AddSingleton<RecoveryWorkflowService>();
 builder.Services.AddSingleton<IIncidentDiagnosticProvider, MockIncidentDiagnosticProvider>();
 builder.Services.AddSingleton<IncidentDiagnosticService>();
 var app = builder.Build();
@@ -73,6 +77,27 @@ app.MapPost("/api/recovery/approvals/{requestId}/approve",
 app.MapPost("/api/recovery/approvals/{requestId}/reject",
     (string requestId, ApprovalDecisionRequest decision, RecoveryApprovalStore approvals) =>
     ApplyApproval(() => approvals.Reject(requestId, decision.Actor, decision.At, decision.Reason)));
+
+// Local orchestration only: approval does not authorize infrastructure execution.
+app.MapPost("/api/incidents/{id}/recovery/workflows",
+    async (string id, RecoveryWorkflowService workflows, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await workflows.StartAsync(id, cancellationToken));
+    }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+});
+
+app.MapGet("/api/recovery/workflows", (RecoveryWorkflowService workflows) =>
+    Results.Ok(workflows.List()));
+
+app.MapGet("/api/recovery/workflows/{workflowId}",
+    (string workflowId, RecoveryWorkflowService workflows) =>
+{
+    try { return Results.Ok(workflows.Get(workflowId)); }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+});
 
 app.MapPost("/api/incidents/{id}/recovery/dry-run",
     (string id, IncidentLifecycleStore store, RecoveryPlanner planner, RecoveryDryRunService simulator) =>
