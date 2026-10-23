@@ -74,9 +74,6 @@ public sealed class AzureMonitorTelemetrySource : ITelemetrySource
                 seen.Clear();
             }
 
-            if (resource is not null && point.Timestamp < timestamp)
-                throw new InvalidOperationException("Metric points must be sorted by timestamp within the stream.");
-
             resource = point.ResourceId;
             timestamp = point.Timestamp;
             if (!seen.Add(point.MetricName))
@@ -95,7 +92,7 @@ public sealed class AzureMonitorTelemetrySource : ITelemetrySource
 
     private static void Validate(AzureMetricPoint point)
     {
-        if (point is null || string.IsNullOrWhiteSpace(point.ResourceId))
+        if (point is null || string.IsNullOrWhiteSpace(point.ResourceId) || string.IsNullOrWhiteSpace(point.MetricName))
             throw new ArgumentException("Metric point and resource ID are required.");
         if (!double.IsFinite(point.Value) || point.Value < 0)
             throw new ArgumentOutOfRangeException(nameof(point), "Metric value must be finite and nonnegative.");
