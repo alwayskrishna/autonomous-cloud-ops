@@ -32,3 +32,7 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: az bicep build --file infra/main.bicep
+      - name: Build offline load benchmark
+        run: dotnet build benchmarks/AutonomousCloudOps.Benchmarks/AutonomousCloudOps.Benchmarks.csproj --configuration Release
+      - name: Run bounded synthetic load benchmark
+        run: dotnet run --project benchmarks/AutonomousCloudOps.Benchmarks/AutonomousCloudOps.Benchmarks.csproj --configuration Release --no-build -- 10000
