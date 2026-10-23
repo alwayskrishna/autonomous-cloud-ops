@@ -51,7 +51,7 @@ public sealed class PlatformRecoveryAdapterTests
     public void RejectsMissingAksNamespace()
     {
         var target = Aks() with { Namespace = null };
-        Assert.Throws<ArgumentException>(() =>
+        Assert.Throws<ArgumentNullException>(() =>
             new AksRecoveryPreviewAdapter().Preview(Action(RecoveryActionKind.RestartService), target));
     }
 
