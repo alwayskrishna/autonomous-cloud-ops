@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace AutonomousCloudOps.Core;
@@ -54,6 +55,8 @@ public sealed class TelemetryIngestionService
         if (maxSamples <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxSamples));
 
+        using var activity = CloudOpsObservability.ActivitySource.StartActivity("telemetry.ingest");
+        var stopwatch = Stopwatch.StartNew();
         var incidents = new List<Incident>();
         var processed = 0;
         await using var enumerator = source.ReadAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
@@ -67,6 +70,12 @@ public sealed class TelemetryIngestionService
             processed++;
         }
 
+        stopwatch.Stop();
+        CloudOpsObservability.SamplesProcessed.Add(processed);
+        CloudOpsObservability.IncidentsDetected.Add(incidents.Count);
+        CloudOpsObservability.IngestionDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
+        activity?.SetTag("samples.processed", processed);
+        activity?.SetTag("incidents.detected", incidents.Count);
         return new IngestionResult(processed, incidents);
     }
 }
