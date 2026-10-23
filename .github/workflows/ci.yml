@@ -24,3 +24,11 @@ jobs:
         run: dotnet build src/AutonomousCloudOps.Cli/AutonomousCloudOps.Cli.csproj --configuration Release
       - name: Run offline demo
         run: dotnet run --project src/AutonomousCloudOps.Cli/AutonomousCloudOps.Cli.csproj --configuration Release --no-build
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+      - name: Build local-only container image
+        run: docker build --tag autonomous-cloud-ops:ci .
+      - name: Validate Bicep template syntax
+        uses: azure/cli@v2
+        with:
+          inlineScript: az bicep build --file infra/main.bicep
