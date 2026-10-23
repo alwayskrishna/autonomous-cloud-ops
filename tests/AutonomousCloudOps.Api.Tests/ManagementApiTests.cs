@@ -124,6 +124,25 @@ public sealed class ManagementApiTests
     }
 
     [Fact]
+    public async Task PlatformPreviewApiDoesNotExecuteRecovery()
+    {
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
+        var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/api/recovery/platform-preview", new
+        {
+            action = new { id = "action-1", incidentId = "incident-1", resourceId = "service-a",
+                kind = 1, rationale = "CPU high", targetInstanceCount = 2 },
+            target = new { platform = 0, subscriptionId = "sub-1", resourceGroup = "rg",
+                resourceName = "service-a", @namespace = "default", workloadName = "frontend" }
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.False(body.GetProperty("executed").GetBoolean());
+        Assert.Contains("frontend", body.GetProperty("proposedOperation").GetString());
+    }
+
+    [Fact]
     public async Task MissingIncidentReturnsNotFound()
     {
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
