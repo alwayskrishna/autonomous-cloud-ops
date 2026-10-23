@@ -1,12 +1,12 @@
 using System.Text.Json;
 using AutonomousCloudOps.Core;
 
-var sample = new TelemetrySample(
-    ResourceId: "demo/container-app-01",
-    Timestamp: DateTimeOffset.UtcNow,
-    CpuPercent: 95,
-    MemoryPercent: 62,
-    Http5xxCount: 12);
-
-var incidents = new IncidentDetector().Detect(sample);
-Console.WriteLine(JsonSerializer.Serialize(new { sample, incidents }, new JsonSerializerOptions { WriteIndented = true }));
+var now = DateTimeOffset.UtcNow;
+var source = new SimulatedTelemetrySource(new[]
+{
+    new TelemetrySample("demo/container-app-01", now, 95, 62, 12),
+    new TelemetrySample("demo/container-app-02", now, 34, 48, 0),
+    new TelemetrySample("demo/container-app-03", now, 40, 93, 0)
+});
+var result = await new TelemetryIngestionService(new IncidentDetector()).IngestAsync(source);
+Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
