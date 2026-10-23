@@ -18,6 +18,9 @@ builder.Services.AddSingleton<IIncidentEvidenceSource>(_ => new InMemoryIncident
 builder.Services.AddSingleton<IncidentEvidenceService>(sp =>
     new IncidentEvidenceService(sp.GetRequiredService<IIncidentEvidenceSource>()));
 builder.Services.AddSingleton<RecoveryWorkflowService>();
+builder.Services.AddSingleton<IPlatformRecoveryAdapter, AksRecoveryPreviewAdapter>();
+builder.Services.AddSingleton<IPlatformRecoveryAdapter, ContainerAppsRecoveryPreviewAdapter>();
+builder.Services.AddSingleton<PlatformRecoveryPreviewService>();
 builder.Services.AddSingleton<IIncidentDiagnosticProvider, MockIncidentDiagnosticProvider>();
 builder.Services.AddSingleton<IncidentDiagnosticService>();
 var app = builder.Build();
@@ -99,6 +102,15 @@ app.MapGet("/api/recovery/workflows/{workflowId}",
     catch (KeyNotFoundException) { return Results.NotFound(); }
 });
 
+// Explicit target and action must agree; this endpoint only produces a simulation.
+app.MapPost("/api/recovery/platform-preview",
+    (PlatformRecoveryPreviewRequest request, PlatformRecoveryPreviewService previews) =>
+{
+    try { return Results.Ok(previews.Preview(request.Action, request.Target)); }
+    catch (ArgumentException e) { return Results.BadRequest(new { error = e.Message }); }
+    catch (NotSupportedException e) { return Results.BadRequest(new { error = e.Message }); }
+});
+
 app.MapPost("/api/incidents/{id}/recovery/dry-run",
     (string id, IncidentLifecycleStore store, RecoveryPlanner planner, RecoveryDryRunService simulator) =>
 {
@@ -151,6 +163,7 @@ static IResult ApplyApproval(Func<RecoveryApprovalRequest> action)
     catch (InvalidOperationException e) { return Results.Conflict(new { error = e.Message }); }
 }
 
+public sealed record PlatformRecoveryPreviewRequest(RecoveryAction Action, RecoveryTarget Target);
 public sealed record ApprovalDecisionRequest(string Actor, DateTimeOffset At, string Reason);
 public sealed record TransitionRequest(string Actor, DateTimeOffset At, string? Note);
 public partial class Program { }
