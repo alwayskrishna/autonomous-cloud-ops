@@ -70,6 +70,35 @@ public sealed class ManagementApiTests
     }
 
     [Fact]
+    public async Task RecoveryApprovalApiTracksDecisionWithoutExecution()
+    {
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
+        var client = factory.CreateClient();
+        var detectedAt = DateTimeOffset.UtcNow;
+        var detected = await client.PostAsJsonAsync("/api/telemetry/detect",
+            new { resourceId = "node", timestamp = detectedAt, cpuPercent = 95,
+                memoryPercent = 20, http5xxCount = 0 });
+        Assert.Equal(HttpStatusCode.OK, detected.StatusCode);
+        var incidents = await client.GetFromJsonAsync<System.Text.Json.JsonElement[]>("/api/incidents");
+        Assert.NotNull(incidents);
+        var id = Assert.Single(incidents).GetProperty("incident").GetProperty("id").GetString();
+        var submitted = await client.PostAsync($"/api/incidents/{id}/recovery/approvals", null);
+        Assert.Equal(HttpStatusCode.Created, submitted.StatusCode);
+        var approval = await submitted.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        var requestId = approval.GetProperty("id").GetString();
+        var approved = await client.PostAsJsonAsync($"/api/recovery/approvals/{requestId}/approve",
+            new { actor = "reviewer", at = DateTimeOffset.UtcNow.AddMinutes(1), reason = "Validated" });
+        Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
+        var duplicate = await client.PostAsJsonAsync($"/api/recovery/approvals/{requestId}/approve",
+            new { actor = "reviewer", at = DateTimeOffset.UtcNow.AddMinutes(2), reason = "Again" });
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        var current = await client.GetAsync($"/api/incidents/{id}");
+        Assert.Equal(HttpStatusCode.OK, current.StatusCode);
+        Assert.Contains("\"status\":0", await current.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task MissingIncidentReturnsNotFound()
     {
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
