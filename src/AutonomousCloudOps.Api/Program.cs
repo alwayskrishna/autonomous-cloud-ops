@@ -1,6 +1,7 @@
 using AutonomousCloudOps.Core;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(_ =>
@@ -13,6 +14,8 @@ builder.Services.AddSingleton(_ =>
     return new IncidentLifecycleStore(databasePath);
 });
 builder.Services.AddSingleton<IncidentDetector>();
+builder.Services.AddSingleton<TenantAuthorizationPolicy>();
+builder.Services.AddSingleton<TenantIncidentStore>();
 builder.Services.AddSingleton<RecoveryPlanner>();
 builder.Services.AddSingleton<RecoveryDryRunService>();
 builder.Services.AddSingleton<RecoveryApprovalStore>();
@@ -54,6 +57,68 @@ if (!app.Environment.IsEnvironment("Testing"))
 }
 
 // Local development only. Authentication and authorization are required before deployment.
+// Legacy routes use unscoped singleton stores: block them outside integration tests.
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/api") &&
+            !context.Request.Path.StartsWithSegments("/api/tenants"))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        await next(context);
+    });
+}
+
+static TenantPrincipal? PrincipalFromClaims(ClaimsPrincipal user)
+{
+    var tenant = user.FindFirst("tid")?.Value;
+    var subject = user.FindFirst("oid")?.Value ?? user.FindFirst("sub")?.Value;
+    var role = user.FindAll("roles").Select(c => c.Value)
+        .FirstOrDefault(r => Enum.TryParse<TenantRole>(r, true, out _));
+    if (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(subject) ||
+        role is null || !Enum.TryParse<TenantRole>(role, true, out var parsed))
+        return null;
+    return new TenantPrincipal(tenant, subject, parsed);
+}
+
+app.MapGet("/api/tenants/{tenantId}/incidents",
+    (string tenantId, HttpContext context, TenantIncidentStore store) =>
+{
+    var principal = PrincipalFromClaims(context.User);
+    if (principal is null) return Results.Forbid();
+    try { return Results.Ok(store.List(principal, tenantId)); }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+});
+
+app.MapGet("/api/tenants/{tenantId}/incidents/{id}",
+    (string tenantId, string id, HttpContext context, TenantIncidentStore store) =>
+{
+    var principal = PrincipalFromClaims(context.User);
+    if (principal is null) return Results.Forbid();
+    try { return Results.Ok(store.Get(principal, tenantId, id)); }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+});
+
+app.MapPost("/api/tenants/{tenantId}/incidents",
+    (string tenantId, Incident incident, HttpContext context, TenantIncidentStore store,
+        TenantAuthorizationPolicy policy) =>
+{
+    var principal = PrincipalFromClaims(context.User);
+    if (principal is null) return Results.Forbid();
+    try
+    {
+        policy.Demand(principal, tenantId, TenantPermission.ManageIncident);
+        return Results.Ok(store.Open(principal, incident));
+    }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (ArgumentException e) { return Results.BadRequest(new { error = e.Message }); }
+    catch (InvalidOperationException e) { return Results.Conflict(new { error = e.Message }); }
+});
+
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymous();
 
 app.MapGet("/api/incidents", (IncidentLifecycleStore store) =>
