@@ -11,6 +11,8 @@ builder.Services.AddSingleton(_ =>
     return new IncidentLifecycleStore(databasePath);
 });
 builder.Services.AddSingleton<IncidentDetector>();
+builder.Services.AddSingleton<IIncidentDiagnosticProvider, MockIncidentDiagnosticProvider>();
+builder.Services.AddSingleton<IncidentDiagnosticService>();
 var app = builder.Build();
 
 // Local development only. Authentication and authorization are required before deployment.
@@ -35,6 +37,18 @@ app.MapPost("/api/telemetry/detect", (TelemetrySample sample, IncidentDetector d
         return Results.Ok(new { incidents, count = incidents.Count });
     }
     catch (ArgumentException e) { return Results.BadRequest(new { error = e.Message }); }
+});
+
+app.MapPost("/api/incidents/{id}/diagnose", async (string id, IncidentLifecycleStore store,
+    IncidentDiagnosticService diagnostics, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var tracked = store.Get(id);
+        var assessment = await diagnostics.DiagnoseAsync(tracked.Incident, cancellationToken);
+        return Results.Ok(assessment);
+    }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
 });
 
 app.MapPost("/api/incidents/{id}/acknowledge", (string id, TransitionRequest request, IncidentLifecycleStore store) =>
