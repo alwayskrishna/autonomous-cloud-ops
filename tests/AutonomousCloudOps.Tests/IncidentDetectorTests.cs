@@ -19,7 +19,7 @@ public sealed class IncidentDetectorTests
         var incidents = _detector.Detect(Sample(90, 90, 10));
         Assert.Equal(3, incidents.Count);
         Assert.Equal(2, incidents.Count(i => i.Severity == IncidentSeverity.Critical));
-        Assert.Single(incidents.Where(i => i.Severity == IncidentSeverity.Warning));
+        Assert.Single(incidents, i => i.Severity == IncidentSeverity.Warning);
         Assert.All(incidents, i => Assert.Equal("demo/resource", i.ResourceId));
     }
 
