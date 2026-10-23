@@ -1,0 +1,24 @@
+name: .NET CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore tests/AutonomousCloudOps.Tests/AutonomousCloudOps.Tests.csproj
+      - name: Test
+        run: dotnet test tests/AutonomousCloudOps.Tests/AutonomousCloudOps.Tests.csproj --no-restore --configuration Release
+      - name: Build CLI
+        run: dotnet build src/AutonomousCloudOps.Cli/AutonomousCloudOps.Cli.csproj --configuration Release
+      - name: Run offline demo
+        run: dotnet run --project src/AutonomousCloudOps.Cli/AutonomousCloudOps.Cli.csproj --configuration Release --no-build
