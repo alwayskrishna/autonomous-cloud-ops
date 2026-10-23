@@ -11,6 +11,8 @@ builder.Services.AddSingleton(_ =>
     return new IncidentLifecycleStore(databasePath);
 });
 builder.Services.AddSingleton<IncidentDetector>();
+builder.Services.AddSingleton<RecoveryPlanner>();
+builder.Services.AddSingleton<RecoveryDryRunService>();
 builder.Services.AddSingleton<IIncidentDiagnosticProvider, MockIncidentDiagnosticProvider>();
 builder.Services.AddSingleton<IncidentDiagnosticService>();
 var app = builder.Build();
@@ -37,6 +39,22 @@ app.MapPost("/api/telemetry/detect", (TelemetrySample sample, IncidentDetector d
         return Results.Ok(new { incidents, count = incidents.Count });
     }
     catch (ArgumentException e) { return Results.BadRequest(new { error = e.Message }); }
+});
+
+app.MapPost("/api/incidents/{id}/recovery/dry-run",
+    (string id, IncidentLifecycleStore store, RecoveryPlanner planner, RecoveryDryRunService simulator) =>
+{
+    try
+    {
+        var incident = store.Get(id).Incident;
+        var plan = planner.Propose(incident);
+        return Results.Ok(new
+        {
+            plan,
+            simulations = plan.Actions.Select(simulator.Simulate).ToArray()
+        });
+    }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
 });
 
 app.MapPost("/api/incidents/{id}/diagnose", async (string id, IncidentLifecycleStore store,
