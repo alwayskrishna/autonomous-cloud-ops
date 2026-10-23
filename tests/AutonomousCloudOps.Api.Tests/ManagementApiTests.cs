@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -10,7 +11,7 @@ public sealed class ManagementApiTests
     [Fact]
     public async Task HealthEndpointReturnsHealthy()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
         var response = await factory.CreateClient().GetAsync("/health");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("healthy", await response.Content.ReadAsStringAsync());
@@ -19,7 +20,7 @@ public sealed class ManagementApiTests
     [Fact]
     public async Task IncidentListStartsEmpty()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
         var response = await factory.CreateClient().GetAsync("/api/incidents");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("[]", await response.Content.ReadAsStringAsync());
@@ -28,7 +29,7 @@ public sealed class ManagementApiTests
     [Fact]
     public async Task DetectAndTransitionIncident()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
         var client = factory.CreateClient();
         var detectedAt = DateTimeOffset.UtcNow;
         var detect = await client.PostAsJsonAsync("/api/telemetry/detect",
@@ -53,7 +54,7 @@ public sealed class ManagementApiTests
     [Fact]
     public async Task MissingIncidentReturnsNotFound()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
         var response = await factory.CreateClient().GetAsync("/api/incidents/missing");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -61,7 +62,7 @@ public sealed class ManagementApiTests
     [Fact]
     public async Task InvalidTelemetryReturnsBadRequest()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
         var response = await factory.CreateClient().PostAsJsonAsync("/api/telemetry/detect",
             new { resourceId = "demo/node", timestamp = DateTimeOffset.UtcNow, cpuPercent = 200, memoryPercent = 20, http5xxCount = 0 });
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
