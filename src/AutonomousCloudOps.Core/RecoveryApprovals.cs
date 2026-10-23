@@ -1,3 +1,6 @@
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
+
 namespace AutonomousCloudOps.Core;
 
 public enum RecoveryApprovalStatus { Pending, Approved, Rejected }
@@ -19,6 +22,41 @@ public sealed record RecoveryApprovalRequest(
 public sealed class RecoveryApprovalStore
 {
     private readonly object _gate = new();
+    private readonly string? _connectionString;
+
+    public RecoveryApprovalStore(string? databasePath = null)
+    {
+        if (databasePath is null) return;
+        var fullPath = Path.GetFullPath(databasePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = fullPath }.ToString();
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "CREATE TABLE IF NOT EXISTS recovery_approvals (id TEXT PRIMARY KEY, payload TEXT NOT NULL)";
+        command.ExecuteNonQuery();
+        command.CommandText = "SELECT payload FROM recovery_approvals";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var request = JsonSerializer.Deserialize<RecoveryApprovalRequest>(reader.GetString(0))
+                ?? throw new InvalidDataException("Invalid persisted approval payload.");
+            _requests.Add(request.Id, request);
+        }
+    }
+
+    private void Persist(RecoveryApprovalRequest request)
+    {
+        if (_connectionString is null) return;
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO recovery_approvals(id, payload) VALUES ($id, $payload) " +
+            "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload";
+        command.Parameters.AddWithValue("$id", request.Id);
+        command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(request));
+        command.ExecuteNonQuery();
+    }
     private readonly Dictionary<string, RecoveryApprovalRequest> _requests = new(StringComparer.Ordinal);
 
     public RecoveryApprovalRequest Submit(RecoveryAction action, DateTimeOffset requestedAt)
@@ -84,6 +122,7 @@ public sealed class RecoveryApprovalStore
                 Status = target,
                 Decisions = current.Decisions.Concat(new[] { decision }).ToArray()
             };
+            Persist(updated);
             _requests[requestId] = updated;
             return updated;
         }
