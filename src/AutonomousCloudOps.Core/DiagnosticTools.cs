@@ -17,6 +17,7 @@ public sealed class DiagnosticToolRegistry
 {
     private readonly IncidentLifecycleStore _store;
     private readonly IncidentDiagnosticService _diagnostics;
+    private readonly IncidentEvidenceService _evidence;
 
     private static readonly IReadOnlyList<DiagnosticToolDefinition> Definitions =
     [
@@ -25,13 +26,17 @@ public sealed class DiagnosticToolRegistry
         new("get_incident", "Get one incident including its audit history.",
             """{"type":"object","properties":{"incidentId":{"type":"string"}},"required":["incidentId"],"additionalProperties":false}"""),
         new("diagnose_incident", "Retrieve advisory, offline diagnostic guidance for one incident.",
+            """{"type":"object","properties":{"incidentId":{"type":"string"}},"required":["incidentId"],"additionalProperties":false}"""),
+        new("get_incident_evidence", "Retrieve bounded metric, log and deployment evidence for one incident.",
             """{"type":"object","properties":{"incidentId":{"type":"string"}},"required":["incidentId"],"additionalProperties":false}""")
     ];
 
-    public DiagnosticToolRegistry(IncidentLifecycleStore store, IncidentDiagnosticService diagnostics)
+    public DiagnosticToolRegistry(IncidentLifecycleStore store, IncidentDiagnosticService diagnostics,
+        IncidentEvidenceService? evidence = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+        _evidence = evidence ?? new IncidentEvidenceService(new InMemoryIncidentEvidenceSource([]));
     }
 
     public IReadOnlyList<DiagnosticToolDefinition> ListTools() => Definitions;
@@ -42,7 +47,7 @@ public sealed class DiagnosticToolRegistry
         ArgumentNullException.ThrowIfNull(call);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (call.Name is not ("list_incidents" or "get_incident" or "diagnose_incident"))
+        if (call.Name is not ("list_incidents" or "get_incident" or "diagnose_incident" or "get_incident_evidence"))
             return new DiagnosticToolResult(call.Name, """{"error":"Unknown tool"}""", true);
 
         try
@@ -68,6 +73,12 @@ public sealed class DiagnosticToolRegistry
             var incident = _store.Get(id);
             if (call.Name == "get_incident")
                 return new DiagnosticToolResult(call.Name, JsonSerializer.Serialize(incident));
+
+            if (call.Name == "get_incident_evidence")
+            {
+                var evidence = await _evidence.RetrieveAsync(incident.Incident, cancellationToken);
+                return new DiagnosticToolResult(call.Name, JsonSerializer.Serialize(evidence));
+            }
 
             var assessment = await _diagnostics.DiagnoseAsync(incident.Incident, cancellationToken);
             return new DiagnosticToolResult(call.Name, JsonSerializer.Serialize(assessment));
