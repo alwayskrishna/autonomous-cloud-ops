@@ -36,6 +36,7 @@ public sealed class IncidentCorrelator
             string.IsNullOrWhiteSpace(incident.Reason))
             throw new ArgumentException("Incident ID, resource, and reason are required.", nameof(incident));
 
+        using var activity = CloudOpsObservability.ActivitySource.StartActivity("incident.correlate");
         var key = BuildKey(incident);
         lock (_gate)
         {
@@ -55,6 +56,8 @@ public sealed class IncidentCorrelator
                         LatestReason = incident.Reason
                     };
                     _active[key] = updated;
+                    CloudOpsObservability.CorrelationEvents.Add(1);
+                    activity?.SetTag("correlation.occurrences", updated.OccurrenceCount);
                     return updated;
                 }
             }
@@ -63,6 +66,8 @@ public sealed class IncidentCorrelator
                 incident.Id, incident.ResourceId, key, incident.Severity,
                 incident.DetectedAt, incident.DetectedAt, 1, incident.Reason);
             _active[key] = created;
+            CloudOpsObservability.CorrelationEvents.Add(1);
+            activity?.SetTag("correlation.occurrences", 1);
             return created;
         }
     }
