@@ -13,11 +13,6 @@ services:
     volumes:
       - incident-data:/app/data
     restart: "no"
-    healthcheck:
-      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/8080"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
 volumes:
   incident-data:
