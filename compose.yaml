@@ -1,0 +1,18 @@
+services:
+  cloud-ops-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autonomous-cloud-ops:local
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      IncidentDatabasePath: /app/data/incidents.db
+      ASPNETCORE_ENVIRONMENT: Production
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - incident-data:/app/data
+    restart: "no"
+
+volumes:
+  incident-data:
