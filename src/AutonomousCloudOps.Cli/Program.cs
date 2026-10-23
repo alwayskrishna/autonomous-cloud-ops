@@ -9,4 +9,17 @@ var source = new SimulatedTelemetrySource(new[]
     new TelemetrySample("demo/container-app-03", now, 40, 93, 0)
 });
 var result = await new TelemetryIngestionService(new IncidentDetector()).IngestAsync(source);
-Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
+var store = new IncidentLifecycleStore();
+foreach (var incident in result.Incidents)
+    store.Open(incident);
+
+if (result.Incidents.Count > 0)
+{
+    var incident = result.Incidents[0];
+    store.Acknowledge(incident.Id, "demo-operator", now.AddMinutes(1), "Investigating");
+    store.Resolve(incident.Id, "demo-operator", now.AddMinutes(2), "Simulation complete");
+}
+
+Console.WriteLine(JsonSerializer.Serialize(
+    new { result.SamplesProcessed, Incidents = store.List() },
+    new JsonSerializerOptions { WriteIndented = true }));
