@@ -18,6 +18,8 @@ jobs:
         run: dotnet restore tests/AutonomousCloudOps.Tests/AutonomousCloudOps.Tests.csproj
       - name: Test
         run: dotnet test tests/AutonomousCloudOps.Tests/AutonomousCloudOps.Tests.csproj --no-restore --configuration Release
+      - name: Test management API
+        run: dotnet test tests/AutonomousCloudOps.Api.Tests/AutonomousCloudOps.Api.Tests.csproj --configuration Release
       - name: Build CLI
         run: dotnet build src/AutonomousCloudOps.Cli/AutonomousCloudOps.Cli.csproj --configuration Release
       - name: Run offline demo
