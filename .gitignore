@@ -3,3 +3,9 @@
 .vs/
 .idea/
 *.user
+
+# Local SQLite state
+data/
+*.db
+*.db-shm
+*.db-wal

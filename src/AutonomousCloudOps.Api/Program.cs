@@ -1,7 +1,15 @@
 using AutonomousCloudOps.Core;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSingleton<IncidentLifecycleStore>();
+builder.Services.AddSingleton(_ =>
+{
+    // Integration tests use an isolated in-memory store; local runs use a durable SQLite file.
+    var databasePath = builder.Environment.IsEnvironment("Testing")
+        ? null
+        : builder.Configuration["IncidentDatabasePath"] ??
+          Path.Combine(builder.Environment.ContentRootPath, "data", "incidents.db");
+    return new IncidentLifecycleStore(databasePath);
+});
 builder.Services.AddSingleton<IncidentDetector>();
 var app = builder.Build();
 

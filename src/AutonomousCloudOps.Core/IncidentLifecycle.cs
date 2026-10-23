@@ -1,3 +1,6 @@
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
+
 namespace AutonomousCloudOps.Core;
 
 public enum IncidentStatus { Open, Acknowledged, Resolved }
@@ -15,11 +18,52 @@ public sealed record TrackedIncident(
     IReadOnlyList<IncidentTransition> History);
 
 /// <summary>
-/// Thread-safe, in-memory incident lifecycle. Durable storage is a future milestone.
+/// Thread-safe incident lifecycle with optional SQLite-backed durability.
 /// </summary>
 public sealed class IncidentLifecycleStore
 {
     private readonly object _gate = new();
+    private readonly string? _connectionString;
+
+    public IncidentLifecycleStore(string? databasePath = null)
+    {
+        if (databasePath is null) return;
+        if (string.IsNullOrWhiteSpace(databasePath))
+            throw new ArgumentException("Database path must not be empty.", nameof(databasePath));
+        var fullPath = Path.GetFullPath(databasePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = fullPath }.ToString();
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using (var create = connection.CreateCommand())
+        {
+            create.CommandText = "CREATE TABLE IF NOT EXISTS incidents (id TEXT PRIMARY KEY, payload TEXT NOT NULL)";
+            create.ExecuteNonQuery();
+        }
+        using var read = connection.CreateCommand();
+        read.CommandText = "SELECT payload FROM incidents";
+        using var reader = read.ExecuteReader();
+        while (reader.Read())
+        {
+            var tracked = JsonSerializer.Deserialize<TrackedIncident>(reader.GetString(0))
+                ?? throw new InvalidDataException("Invalid persisted incident payload.");
+            _incidents.Add(tracked.Incident.Id, tracked);
+        }
+    }
+
+    private void Persist(TrackedIncident tracked)
+    {
+        if (_connectionString is null) return;
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO incidents(id, payload) VALUES ($id, $payload) " +
+            "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload";
+        command.Parameters.AddWithValue("$id", tracked.Incident.Id);
+        command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(tracked));
+        command.ExecuteNonQuery();
+    }
+
     private readonly Dictionary<string, TrackedIncident> _incidents = new(StringComparer.Ordinal);
 
     public TrackedIncident Open(Incident incident)
@@ -33,6 +77,7 @@ public sealed class IncidentLifecycleStore
             if (_incidents.ContainsKey(incident.Id))
                 throw new InvalidOperationException($"Incident '{incident.Id}' already exists.");
             var tracked = new TrackedIncident(incident, IncidentStatus.Open, Array.Empty<IncidentTransition>());
+            Persist(tracked);
             _incidents.Add(incident.Id, tracked);
             return tracked;
         }
@@ -88,6 +133,7 @@ public sealed class IncidentLifecycleStore
             var transition = new IncidentTransition(current.Status, target, at, actor, note);
             var history = current.History.Concat(new[] { transition }).ToArray();
             var updated = new TrackedIncident(current.Incident, target, history);
+            Persist(updated);
             _incidents[incidentId] = updated;
             return updated;
         }
