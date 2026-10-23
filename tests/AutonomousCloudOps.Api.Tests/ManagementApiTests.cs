@@ -52,6 +52,24 @@ public sealed class ManagementApiTests
     }
 
     [Fact]
+    public async Task DiagnoseEndpointReturnsOfflineGuidance()
+    {
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
+        var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/api/telemetry/detect",
+            new { resourceId = "node", timestamp = DateTimeOffset.UtcNow, cpuPercent = 95,
+                memoryPercent = 20, http5xxCount = 0 });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var incidents = await client.GetFromJsonAsync<System.Text.Json.JsonElement[]>("/api/incidents");
+        Assert.NotNull(incidents);
+        var id = Assert.Single(incidents).GetProperty("incident").GetProperty("id").GetString();
+        var diagnosis = await client.PostAsync($"/api/incidents/{id}/diagnose", null);
+        Assert.Equal(HttpStatusCode.OK, diagnosis.StatusCode);
+        Assert.Contains("offline-mock", await diagnosis.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task MissingIncidentReturnsNotFound()
     {
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
